@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# Exit if any command fails
+set -e
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+
+# Make the scripts executable
+chmod +x $BUILD_DIR/bin/*
+
+# Function to output step messages
+function output() {
+    echo "-----> $*"
+}
+
+# Install system dependencies
+output "Installing system dependencies"
+apt-get update
+apt-get install -y \
+    php8.1-cli \
+    php8.1-common \
+    php8.1-curl \
+    php8.1-json \
+    php8.1-mbstring \
+    php8.1-mysql \
+    php8.1-pgsql \
+    php8.1-sqlite3 \
+    php8.1-xml \
+    php8.1-zip \
+    unzip \
+    git
+
+# Install Composer
+output "Installing Composer"
+EXPECTED_CHECKSUM="$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')"
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+
+if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
+    >&2 echo 'ERROR: Invalid composer installer checksum'
+    rm composer-setup.php
+    exit 1
+fi
+
+php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+rm composer-setup.php
+
+# Install DreamFactory
+output "Installing DreamFactory"
+cd $BUILD_DIR
+composer create-project dreamfactory/dreamfactory .
+
+# Configure storage permissions
+output "Configuring storage permissions"
+chmod -R 775 storage/
+chmod -R 775 bootstrap/cache/
+
+# Generate application key
+output "Generating application key"
+php artisan key:generate --force
+
+# Run migrations
+output "Running database migrations"
+php artisan migrate --force
+
+# Clear caches
+output "Clearing caches"
+php artisan cache:clear
+php artisan config:clear
+php artisan route:clear
+
+output "DreamFactory installation completed" 

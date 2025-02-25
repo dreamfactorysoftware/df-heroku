@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# Exit if any command fails
+set -e
+
+BUILD_DIR=$1
+
+# Check if composer.json exists and contains dreamfactory/dreamfactory
+if [ -f $BUILD_DIR/composer.json ]; then
+    if grep -q "dreamfactory/dreamfactory" "$BUILD_DIR/composer.json"; then
+        echo "DreamFactory"
+        exit 0
+    fi
+fi
+
+# Check if .env file exists with DREAMFACTORY indicators
+if [ -f $BUILD_DIR/.env ]; then
+    if grep -q "DB_CONNECTION" "$BUILD_DIR/.env"; then
+        echo "DreamFactory"
+        exit 0
+    fi
+fi
+
+exit 1 
