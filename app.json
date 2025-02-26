@@ -1,0 +1,43 @@
+{
+  "name": "DreamFactory",
+  "description": "DreamFactory API Management Platform",
+  "repository": "https://github.com/dreamfactorysoftware/dreamfactory",
+  "logo": "https://raw.githubusercontent.com/dreamfactorysoftware/dreamfactory/master/public/img/logo-navbar.png",
+  "keywords": ["php", "api", "rest", "dreamfactory", "laravel"],
+  "buildpacks": [
+    {
+      "url": "heroku/php"
+    },
+    {
+      "url": "https://github.com/dreamfactorysoftware/df-heroku.git"
+    }
+  ],
+  "addons": [
+    "heroku-postgresql:hobby-dev"
+  ],
+  "env": {
+    "APP_ENV": {
+      "description": "Application environment",
+      "value": "production"
+    },
+    "APP_DEBUG": {
+      "description": "Enable debug mode",
+      "value": "false"
+    },
+    "APP_KEY": {
+      "description": "Application encryption key (will be generated if not provided)",
+      "required": false
+    },
+    "DB_CONNECTION": {
+      "description": "Database connection type",
+      "value": "pgsql"
+    },
+    "LOG_CHANNEL": {
+      "description": "Log channel",
+      "value": "stack"
+    }
+  },
+  "scripts": {
+    "postdeploy": "php artisan migrate --force"
+  }
+} 
