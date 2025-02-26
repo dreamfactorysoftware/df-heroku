@@ -7,68 +7,99 @@ BUILD_DIR=$1
 CACHE_DIR=$2
 ENV_DIR=$3
 
-# Make the scripts executable
-chmod +x $BUILD_DIR/bin/*
-
 # Function to output step messages
 function output() {
     echo "-----> $*"
 }
 
-# Install system dependencies
-output "Installing system dependencies"
-apt-get update
-apt-get install -y \
-    php8.1-cli \
-    php8.1-common \
-    php8.1-curl \
-    php8.1-json \
-    php8.1-mbstring \
-    php8.1-mysql \
-    php8.1-pgsql \
-    php8.1-sqlite3 \
-    php8.1-xml \
-    php8.1-zip \
-    unzip \
-    git
+# Function to export env vars from ENV_DIR
+export_env_vars() {
+    output "Exporting environment variables"
+    for env_file in $ENV_DIR/*; do
+        if [ -f "$env_file" ]; then
+            var_name=$(basename "$env_file")
+            var_value=$(cat "$env_file")
+            export "$var_name=$var_value"
+            # Also make it available to subprocesses
+            echo "export $var_name=\"$var_value\"" >> $BUILD_DIR/.profile.d/dreamfactory.sh
+        fi
+    done
+}
 
-# Install Composer
-output "Installing Composer"
-EXPECTED_CHECKSUM="$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')"
-php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+# Create .profile.d directory for startup scripts
+mkdir -p $BUILD_DIR/.profile.d
+touch $BUILD_DIR/.profile.d/dreamfactory.sh
+chmod +x $BUILD_DIR/.profile.d/dreamfactory.sh
 
-if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
-    >&2 echo 'ERROR: Invalid composer installer checksum'
-    rm composer-setup.php
-    exit 1
+# Export environment variables
+if [ -d "$ENV_DIR" ]; then
+    export_env_vars
 fi
 
-php composer-setup.php --install-dir=/usr/local/bin --filename=composer
-rm composer-setup.php
+# Use Heroku's PHP buildpack for PHP dependencies
+output "Using Heroku PHP buildpack for PHP dependencies"
+# We don't need to install PHP ourselves as Heroku's PHP buildpack will handle this
 
-# Install DreamFactory
-output "Installing DreamFactory"
-cd $BUILD_DIR
-composer create-project dreamfactory/dreamfactory .
+# Check if we need to install DreamFactory or if it's already in the repo
+if [ ! -f "$BUILD_DIR/composer.json" ] || ! grep -q "dreamfactory/dreamfactory" "$BUILD_DIR/composer.json"; then
+    output "Installing DreamFactory from scratch"
+    
+    # Create a temporary directory for the installation
+    TMP_DIR=$(mktemp -d)
+    cd $TMP_DIR
+    
+    # Clone the DreamFactory repository
+    git clone https://github.com/dreamfactorysoftware/dreamfactory.git .
+    
+    # Copy all files to the build directory
+    cp -R * $BUILD_DIR/
+    cp -R .* $BUILD_DIR/ 2>/dev/null || true
+    
+    cd $BUILD_DIR
+else
+    output "DreamFactory already exists in the repository"
+fi
 
 # Configure storage permissions
 output "Configuring storage permissions"
-chmod -R 775 storage/
-chmod -R 775 bootstrap/cache/
+mkdir -p $BUILD_DIR/storage/app
+mkdir -p $BUILD_DIR/storage/framework/cache
+mkdir -p $BUILD_DIR/storage/framework/sessions
+mkdir -p $BUILD_DIR/storage/framework/views
+mkdir -p $BUILD_DIR/storage/logs
+mkdir -p $BUILD_DIR/bootstrap/cache
 
-# Generate application key
-output "Generating application key"
-php artisan key:generate --force
+chmod -R 775 $BUILD_DIR/storage/
+chmod -R 775 $BUILD_DIR/bootstrap/cache/
+
+# Create Procfile if it doesn't exist
+if [ ! -f "$BUILD_DIR/Procfile" ]; then
+    output "Creating Procfile"
+    echo "web: vendor/bin/heroku-php-apache2 public/" > $BUILD_DIR/Procfile
+fi
+
+# Create a post-deploy script to run migrations and clear caches
+output "Creating post-deploy script"
+cat > $BUILD_DIR/.profile.d/post-deploy.sh << 'EOF'
+#!/usr/bin/env bash
+
+# Generate application key if not set
+if [ -z "$APP_KEY" ]; then
+    php artisan key:generate --force
+fi
 
 # Run migrations
-output "Running database migrations"
 php artisan migrate --force
 
 # Clear caches
-output "Clearing caches"
 php artisan cache:clear
 php artisan config:clear
 php artisan route:clear
 
-output "DreamFactory installation completed" 
+# Optimize
+php artisan optimize
+EOF
+
+chmod +x $BUILD_DIR/.profile.d/post-deploy.sh
+
+output "DreamFactory buildpack installation completed" 
